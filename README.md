@@ -68,7 +68,7 @@ emby-cover-generator/
 ```ini
 EMBY_URL=http://your-emby-server-ip:8096
 EMBY_API_KEY=your_emby_api_key_here
-
+```
 ### 4. 个性化参数配置 (config.py)
 
 项目附带 `config.py` 文件，您可以基于字典 `LIBRARY_MAP` 定义需要处理的媒体库名称及中英文映射。您还可以在 `CONFIG` 字典中微调以下视觉参数：
@@ -83,13 +83,8 @@ EMBY_API_KEY=your_emby_api_key_here
 在终端执行以下命令构建镜像并运行：
 
 ```bash
-docker-compose up --build
-
+docker-compose up -d
 ```
-
-> **提示**：配置中已注入 `PYTHONUNBUFFERED=1` 环境变量，运行日志将在控制台实时打印。运行结束后，请前往 `output/` 文件夹检查生成的图片排版是否符合预期。
-
----
 
 ## ⏱️ 自动化调度 (最佳实践)
 
@@ -101,7 +96,6 @@ docker-compose up --build
 
 ```bash
 0 2 * * * docker start emby-cover-generator
-
 ```
 
 *容器唤醒后将自动完成抓取、合成与上传的全流程，随后再次自动休眠。*
@@ -114,6 +108,3 @@ docker-compose up --build
 2. **网络隔离**：尽量在 Emby 服务器所在的同一局域网（或同一 Docker 网络桥接）内部署本容器，避免通过公网明文传输 API 凭证。
 3. **依赖更新**：请定期关注项目中 `Pillow` 与 `requests` 等第三方依赖库的 CVE 漏洞通报并适时更新。
 
-```
-
-```
