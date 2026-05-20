@@ -1,4 +1,4 @@
-# Emby Cover Generator (Emby 媒体库封面自动生成器)
+# Emby-poster (Emby 媒体库封面自动生成器)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Docker Support](https://img.shields.io/badge/Docker-Supported-2496ED.svg)](https://www.docker.com/)
@@ -6,7 +6,7 @@
 
 ## 📖 项目简介
 
-**Emby Cover Generator** 是一款专为 Emby 媒体服务器设计的全自动化封面生成与同步工具。该项目通过调用 Emby REST API，自动抓取指定媒体库中最新入库的影视元数据与图像素材，利用底层图像处理技术（PIL）将背景图与海报墙进行无缝融合，最终生成极具现代感与画廊风格的 16:9 媒体库主封面。
+**Emby-poster** 是一款专为 Emby 媒体服务器设计的全自动化封面生成与同步工具。该项目通过调用 Emby REST API，自动抓取指定媒体库中最新入库的影视元数据与图像素材，利用底层图像处理技术（PIL）将背景图与海报墙进行无缝融合，最终生成极具现代感与画廊风格的 16:9 媒体库主封面。
 
 本项目全面适配 Docker 容器化部署，采用“即用即毁（Run-and-Exit）”的无状态设计理念，完美契合宿主机的系统级 Cron 定时任务，实现极低资源占用的全自动化运维。
 
@@ -95,7 +95,7 @@ docker-compose up -d
 **示例：每天凌晨 2:00 自动触发更新**
 
 ```bash
-0 2 * * * docker start emby-cover-generator
+0 2 * * * docker start emby-poster
 ```
 
 *容器唤醒后将自动完成抓取、合成与上传的全流程，随后再次自动休眠。*
