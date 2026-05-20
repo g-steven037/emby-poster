@@ -2,8 +2,8 @@ version: '3.8'
 
 services:
   cover-generator:
-    build: .
-    container_name: emby-poster
+    image: steven03799/emby-poster:latest
+    container_name: emby-cover-generator
     environment:
       - EMBY_URL=${EMBY_URL}
       - EMBY_API_KEY=${EMBY_API_KEY}
