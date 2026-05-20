@@ -103,7 +103,7 @@ UPLOAD_TO_EMBY = False
 在终端执行容器启动命令：
 
 ```bash
-docker-compose up
+docker-compose up -d
 
 ```
 
