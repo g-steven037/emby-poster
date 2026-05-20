@@ -196,10 +196,10 @@ LIBRARY_MAP = {
   <table border="0" cellspacing="0" cellpadding="0">
     <tr>
       <td align="center">
-        <img src="./output/cover_动画电影.jpg" alt="封面演示1" width="48%">
+        <img src="./images/cover_外语电影.jpg" alt="封面演示1" width="90%">
       </td>
       <td align="center">
-        <img src="这里填写第二张图片的地址.jpg" alt="封面演示2" width="48%">
+        <img src="./images/cover_外语剧集.jpg" alt="封面演示2" width="90%">
       </td>
     </tr>
   </table>
