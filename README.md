@@ -27,7 +27,7 @@
 
 ## 🚀 详细部署与运行指南
 
-本项目已将核心运行环境打包发布至 Docker Hub (`steven03799/emby-poster`)，推荐使用 `docker-compose` 进行部署。
+推荐使用 `docker-compose` 进行部署。
 
 ### 1. 初始化项目目录
 在您的宿主机（如 Linux VPS、群晖 NAS）中创建一个空目录作为项目根目录，并进入该目录：
@@ -72,7 +72,7 @@ version: '3.8'
 services:
   cover-generator:
     image: steven03799/emby-poster:latest
-    container_name: emby-cover-generator
+    container_name: emby-poster
     environment:
       - PYTHONUNBUFFERED=1       # 强制控制台实时打印日志
       - EMBY_URL=${EMBY_URL}
