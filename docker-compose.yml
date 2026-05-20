@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  cover-generator:
+    build: .
+    container_name: emby-poster
+    environment:
+      - EMBY_URL=${EMBY_URL}
+      - EMBY_API_KEY=${EMBY_API_KEY}
+    volumes:
+      - ./fonts:/app/fonts
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./generate_cover.py:/app/generate_cover.py
+      - ./config.py:/app/config.py                 # 新增：挂载配置文件
+    # 注释掉下方指令可作为一次性脚本运行，取消注释可让容器保持后台运行(配合定时任务)
+    # tty: true
