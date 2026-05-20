@@ -1,3 +1,6 @@
+没问题，这是纯 Markdown 源码格式。你可以点击代码块右上角的“复制”按钮，直接全选并粘贴到你的 `README.md` 文件中。
+
+```markdown
 # Emby Cover Generator (Emby 媒体库封面自动生成器)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -58,3 +61,64 @@ emby-cover-generator/
 │   └── en_font.otf      # 自定义英文字体
 ├── input/               # 临时运行缓存 (自动生成)
 └── output/              # 封面输出目录 (自动生成)
+
+```
+
+### 3. 配置安全凭证 (.env)
+
+在项目根目录创建隐藏文件 `.env`，填入您的真实信息（请确保该文件已被加入 `.gitignore`）：
+
+```ini
+EMBY_URL=http://your-emby-server-ip:8096
+EMBY_API_KEY=your_emby_api_key_here
+
+```
+
+### 4. 个性化参数配置 (config.py)
+
+项目附带 `config.py` 文件，您可以基于字典 `LIBRARY_MAP` 定义需要处理的媒体库名称及中英文映射。您还可以在 `CONFIG` 字典中微调以下视觉参数：
+
+* 输出分辨率 (`output_size`)
+* 海报尺寸与间距 (`poster_size`, `poster_spacing`)
+* 模糊强度与粒子密度 (`blur_percent`, `snow_density`)
+
+### 5. 启动与测试
+
+首次运行，建议将配置中的 `UPLOAD_TO_EMBY` 设为 `False` 以开启**预览模式**。
+在终端执行以下命令构建镜像并运行：
+
+```bash
+docker-compose up --build
+
+```
+
+> **提示**：配置中已注入 `PYTHONUNBUFFERED=1` 环境变量，运行日志将在控制台实时打印。运行结束后，请前往 `output/` 文件夹检查生成的图片排版是否符合预期。
+
+---
+
+## ⏱️ 自动化调度 (最佳实践)
+
+为了最小化系统资源占用，本工具默认采用**单次执行模式**（运行完毕即释放容器内存）。建议将定时任务的控制权交由宿主机的操作系统管理。
+
+确认预览效果无误后，将 `UPLOAD_TO_EMBY` 修改为 `True`，并在您的宿主机系统（如 Linux `crontab` 或群晖“任务计划”）中添加定时触发指令。
+
+**示例：每天凌晨 2:00 自动触发更新**
+
+```bash
+0 2 * * * docker start emby-cover-generator
+
+```
+
+*容器唤醒后将自动完成抓取、合成与上传的全流程，随后再次自动休眠。*
+
+---
+
+## 🛡️ 安全合规说明
+
+1. **最小权限原则**：建议在 Emby 中为本工具创建一个专门的 API 密钥，一旦发生泄漏可随时单独吊销。
+2. **网络隔离**：尽量在 Emby 服务器所在的同一局域网（或同一 Docker 网络桥接）内部署本容器，避免通过公网明文传输 API 凭证。
+3. **依赖更新**：请定期关注项目中 `Pillow` 与 `requests` 等第三方依赖库的 CVE 漏洞通报并适时更新。
+
+```
+
+```
