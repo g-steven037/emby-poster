@@ -1,6 +1,3 @@
-没问题，这是纯 Markdown 源码格式。你可以点击代码块右上角的“复制”按钮，直接全选并粘贴到你的 `README.md` 文件中。
-
-```markdown
 # Emby Cover Generator (Emby 媒体库封面自动生成器)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -71,8 +68,6 @@ emby-cover-generator/
 ```ini
 EMBY_URL=http://your-emby-server-ip:8096
 EMBY_API_KEY=your_emby_api_key_here
-
-```
 
 ### 4. 个性化参数配置 (config.py)
 
