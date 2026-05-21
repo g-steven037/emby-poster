@@ -4,6 +4,11 @@ on:
   push:
     # 同时监听 main 和 test 分支的网页端提交变动
     branches: [ "main", "test" ]
+    paths-ignore:
+      - 'README.md'
+      - 'README_zh.md'  # 如果你未来有中文版说明文档
+      - 'LICENSE'       # 顺便忽略开源协议文件的变动
+      - 'docker-publish.yml'
 
 jobs:
   build:
