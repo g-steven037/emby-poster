@@ -1,9 +1,8 @@
 import os
-import random
 import requests
 import base64
 from datetime import datetime
-from PIL import Image, ImageFilter, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 from config import UPLOAD_TO_EMBY, LIBRARY_MAP, CONFIG, EMBY_CONFIG
 
@@ -29,117 +28,80 @@ def get_emby_item_id(library_name):
 
 def download_image(url, save_path):
     try:
-        response = requests.get(url, stream=True, timeout=15)
+        response = requests.get(url, stream=True, timeout=(10, 20))
         if response.status_code == 200:
             with open(save_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
             return True
-        else:
-            print(f"❌ 下载失败，状态码: {response.status_code}")
     except Exception as e:
-        print(f"❌ 下载网络异常: {e}")
+        print(f"❌ 网络异常/超时: {e}")
     return False
 
-def fetch_latest_emby_images(library_name):
-    print(f"🔍 正在 Emby 中查找媒体库: [{library_name}]...")
+def fetch_latest_posters(library_name):
+    print(f"🔍 正在检索媒体库: [{library_name}]...")
     lib_id = get_emby_item_id(library_name)
     if not lib_id:
-        print(f"❌ 未找到媒体库 [{library_name}]。")
-        return False, None, []
+        return False, []
 
     url = f"{EMBY_CONFIG['url']}/emby/Items"
     params = {
         "api_key": EMBY_CONFIG["api_key"],
         "ParentId": lib_id,
         "Recursive": "true",
-        "IncludeItemTypes": "Movie,Series,Episode", 
+        "IncludeItemTypes": "Movie,Series", 
         "SortBy": "DateCreated",            
         "SortOrder": "Descending",          
-        "Limit": 1000,                        # 🌟 [关键修复]: 提高到 300，防止单集更新刷屏霸 "Fields": "BackdropImageTags,SeriesId,SeriesName"  
+        "Limit": 25  # 扩大备用池，只需抓取竖版海报
     }
     
-    try:
-        response = requests.get(url, params=params, timeout=10)
-        raw_items = response.json().get("Items", [])
-    except Exception as e:
-        print(f"❌ 请求 Emby 数据失败: {e}")
-        return False, None, []
-
-    print(f"📥 成功获取到 {len(raw_items)} 条原始入库记录，正在进行深度去重筛选...")
-
-    # === 核心去重与“单集反查剧集”逻辑 ===
-    unique_items = []
-    seen_names = set()
+    response = requests.get(url, params=params, timeout=10)
+    items = response.json().get("Items", [])
     
-    for item in raw_items:
-        item_type = item.get("Type")
-        
-        if item_type == "Episode":
-            series_name = item.get("SeriesName")
-            series_id = item.get("SeriesId")
-            
-            if not series_name or not series_id:
-                continue 
-                
-            if series_name not in seen_names:
-                seen_names.add(series_name)
-                unique_items.append({
-                    "Id": series_id,
-                    "Name": series_name,
-                    "BackdropImageTags": item.get("BackdropImageTags") 
-                })
-                
-        elif item_type in ["Movie", "Series"]:
-            name = item.get("Name", "未知")
-            if name not in seen_names:
-                seen_names.add(name)
-                unique_items.append(item)
-
-        # 只要严格凑齐 7 个不重复的项目，立刻停止筛选，后面的不再耗费性能处理
-        if len(unique_items) == 7:
-            break
-
-    print(f"✨ 深度过滤完成！成功筛选出 {len(unique_items)} 个完全不重复的有效影视项目。")
-
-    if len(unique_items) < 7:
-        print(f"❌ 警告: 即使扫描了 300 条记录，该媒体库中不重复的项目依然不足 7 个，跳过该库。")
-        return False, None, []
+    target_count = CONFIG["poster_count"]
+    if len(items) < target_count:
+        print(f"❌ 媒体库影视不足 {target_count} 个，跳过。")
+        return False, []
 
     os.makedirs("./input", exist_ok=True)
-    bg_path = "./input/auto_bg.jpg"
     poster_paths = []
 
-    # 1. 第 1 个不重复项目 -> 用作横版背景
-    bg_item = unique_items[0]
-    bg_url = f"{EMBY_CONFIG['url']}/emby/Items/{bg_item['Id']}/Images/Backdrop/0?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920"
-    print(f"🖼️ 尝试获取主背景 (横版): [{bg_item.get('Name')}]")
-    
-    if not download_image(bg_url, bg_path):
-        bg_url = f"{EMBY_CONFIG['url']}/emby/Items/{bg_item['Id']}/Images/Primary?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920"
-        print(f"🖼️ 降级获取主背景 (竖版): [{bg_item.get('Name')}]")
-        if not download_image(bg_url, bg_path):
-            print("❌ 背景图下载彻底失败，终止当前库处理。")
-            return False, None, []
-
-    # 2. 第 2 到 7 个不重复项目 -> 用作 6 张底部海报墙
-    for i, item in enumerate(unique_items[1:7]):
-        p_path = f"./input/auto_poster_{i+1}.jpg"
+    # 仅抓取竖版海报 (Primary)，支持顺延
+    for item in items:
+        if len(poster_paths) >= target_count:
+            break 
+            
+        p_path = f"./input/auto_poster_{len(poster_paths)+1}.jpg"
         p_url = f"{EMBY_CONFIG['url']}/emby/Items/{item['Id']}/Images/Primary?api_key={EMBY_CONFIG['api_key']}&maxWidth=600"
         
         if download_image(p_url, p_path):
             poster_paths.append(p_path)
-            print(f"🎞️ 海报 {i+1}: [{item.get('Name')}] -> 下载完成")
-        else:
-            print(f"❌ 海报 [{item.get('Name')}] 下载失败，终止当前库处理。")
-            return False, None, []
+            print(f"🎞️ 海报 {len(poster_paths)}: [{item.get('Name')}] -> 下载完成")
 
-    return True, bg_path, poster_paths
+    if len(poster_paths) < target_count:
+        print(f"❌ 备用海报耗尽，不足 {target_count} 张。")
+        return False, []
 
-# ================= 2. 图像处理核心 =================
+    return True, poster_paths
+
+# ================= 2. 图像处理与排版核心 =================
+
+def get_dominant_color(image_path):
+    """自动提取图片主色调，并压暗处理作为背景"""
+    try:
+        img = Image.open(image_path).convert('RGB')
+        # 缩小至 1x1 像素，强制计算整图平均色
+        img = img.resize((1, 1)) 
+        color = img.getpixel((0, 0))
+        # 降低 30% 亮度，防止背景太亮导致白色文字不可见
+        darkened_color = tuple(max(0, int(c * 0.7)) for c in color)
+        return darkened_color
+    except:
+        return CONFIG["bg_default_color"]
 
 def add_rounded_corners(im, rad):
+    """为海报添加圆角"""
     circle = Image.new('L', (rad * 2, rad * 2), 0)
     draw = ImageDraw.Draw(circle)
     draw.ellipse((0, 0, rad * 2 - 1, rad * 2 - 1), fill=255)
@@ -152,83 +114,80 @@ def add_rounded_corners(im, rad):
     im.putalpha(alpha)
     return im
 
-def apply_snow_effect(bg_image):
-    if not CONFIG.get("snow_enable", False):
-        return bg_image
-
-    print("❄️ 正在添加雪花点缀效果...")
-    snow_layer = Image.new('RGBA', bg_image.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(snow_layer)
-    width, height = bg_image.size
+def create_staggered_cover(poster_paths, lib_key, output_path):
+    print("🎨 开始生成倾斜阶梯风封面...")
     
-    density = CONFIG.get("snow_density", 200)
-    min_r, max_r = CONFIG.get("snow_size_range", (1, 4))
-    min_a, max_a = CONFIG.get("snow_alpha_range", (50, 200))
-
-    for _ in range(density):
-        x = random.randint(0, width)
-        y = random.randint(0, height)
-        r = random.randint(min_r, max_r)
-        a = random.randint(min_a, max_a)
-        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 255, 255, a))
-
-    return Image.alpha_composite(bg_image, snow_layer)
-
-def create_library_cover(bg_path, poster_paths, lib_key, output_path):
-    print("🎨 开始合成最终封面...")
-    try:
-        bg = Image.open(bg_path).convert("RGBA")
-        bg = bg.resize(CONFIG["output_size"], Image.Resampling.LANCZOS)
-    except Exception as e:
-        print(f"❌ 背景图处理失败: {e}")
-        return False
-
-    blur_radius = max(0, min(100, CONFIG["blur_percent"])) / 100.0 * 30
-    if blur_radius > 0:
-        bg = bg.filter(ImageFilter.GaussianBlur(blur_radius))
-
-    bg = apply_snow_effect(bg)
-
-    gradient = Image.new('RGBA', bg.size, (0, 0, 0, 0))
-    draw_grad = ImageDraw.Draw(gradient)
-    fade_width = CONFIG.get("gradient_width", 1000)
-    max_alpha = CONFIG.get("gradient_max_alpha", 180)
-
-    for x in range(fade_width):
-        alpha = int(max_alpha * (1 - (x / fade_width)))
-        draw_grad.line((x, 0, x, bg.size[1]), fill=(0, 0, 0, alpha))
+    # 1. 提取动态背景色
+    bg_color = get_dominant_color(poster_paths[0]) if CONFIG["bg_auto_color"] else CONFIG["bg_default_color"]
     
-    bg = Image.alpha_composite(bg, gradient)
+    # 2. 创建主画布
+    canvas = Image.new("RGBA", CONFIG["output_size"], bg_color + (255,))
+    
+    # 3. 构建超大海报墙图层 (用于整体旋转)
+    wall_layer = Image.new("RGBA", (3000, 3000), (0, 0, 0, 0))
+    
+    p_w, p_h = CONFIG["poster_size"]
+    s_x = CONFIG["poster_spacing_x"]
+    s_y = CONFIG["poster_spacing_y"]
+    stagger = CONFIG["poster_stagger"]
+    
+    # 将海报拼接入 3x3 矩阵，并加入阶梯错位
+    for i, path in enumerate(poster_paths):
+        col = i // 3  # 第几列
+        row = i % 3   # 第几行
+        
+        try:
+            poster = Image.open(path).convert("RGBA")
+            poster = poster.resize((p_w, p_h), Image.Resampling.LANCZOS)
+            poster = add_rounded_corners(poster, rad=25)
+            
+            # 计算写入坐标
+            x = col * (p_w + s_x)
+            y = row * (p_h + s_y) + (col * stagger)
+            
+            wall_layer.paste(poster, (x, y), poster)
+        except Exception as e:
+            print(f"❌ 海报合成失败: {e}")
 
-    draw = ImageDraw.Draw(bg)
+    # 对整个海报墙图层进行旋转 (开启平滑抗锯齿)
+    rotated_wall = wall_layer.rotate(CONFIG["poster_rotation"], expand=True, resample=Image.Resampling.BICUBIC)
+    
+    # 将旋转后的海报墙贴入主画布的指定位置
+    canvas.paste(rotated_wall, CONFIG["poster_grid_pos"], rotated_wall)
+
+    # 4. 绘制左侧排版文字
+    draw = ImageDraw.Draw(canvas)
     lib_names = LIBRARY_MAP.get(lib_key, {"zh": "未知媒体库", "en": "UNKNOWN"})
     
     try:
-        font_zh = ImageFont.truetype(CONFIG["font_zh_path"], CONFIG["font_zh_size"])
-        font_en = ImageFont.truetype(CONFIG["font_en_path"], CONFIG["font_en_size"])
+        font_zh = ImageFont.truetype(CONFIG["font_zh_path"], CONFIG["font_size_zh"])
+        font_en = ImageFont.truetype(CONFIG["font_en_path"], CONFIG["font_size_en"])
     except IOError:
-        print("⚠️ 警告: 未在 fonts 目录找到字体文件，将使用系统默认字体！")
+        print("⚠️ 警告: 未找到字体文件，将使用系统默认字体！")
         font_zh = ImageFont.load_default()
         font_en = ImageFont.load_default()
 
-    draw.text(CONFIG["text_pos_zh"], lib_names["zh"], font=font_zh, fill=(255, 255, 255, 255))
-    draw.text(CONFIG["text_pos_en"], lib_names["en"], font=font_en, fill=(255, 255, 255, 255), spacing=15)
-
-    total_posters_width = (CONFIG["poster_size"][0] * 6) + (CONFIG["poster_spacing"] * 5)
-    start_x = (CONFIG["output_size"][0] - total_posters_width) // 2 
-
-    for i, poster_path in enumerate(poster_paths):
-        try:
-            poster = Image.open(poster_path).convert("RGBA")
-            poster = poster.resize(CONFIG["poster_size"], Image.Resampling.LANCZOS)
-            poster = add_rounded_corners(poster, rad=15) 
-            x_offset = start_x + i * (CONFIG["poster_size"][0] + CONFIG["poster_spacing"])
-            bg.paste(poster, (x_offset, CONFIG["poster_y_pos"]), poster) 
-        except Exception as e:
-            print(f"❌ 海报 {poster_path} 处理失败: {e}")
+    tx, ty = CONFIG["text_pos"]
+    
+    # 绘制中文主标题
+    draw.text((tx, ty), lib_names["zh"], font=font_zh, fill=(255, 255, 255, 255))
+    
+    # 计算英文副标题位置
+    en_y = ty + CONFIG["font_size_zh"] + 25
+    
+    # 绘制装饰条与英文标题
+    if CONFIG["accent_bar_enable"]:
+        bar_width = 15
+        bar_height = CONFIG["font_size_en"] - 5
+        # 画竖条
+        draw.rectangle([tx, en_y + 10, tx + bar_width, en_y + 10 + bar_height], fill=CONFIG["accent_bar_color"])
+        # 画英文 (向右偏移，避开装饰条)
+        draw.text((tx + bar_width + 25, en_y), lib_names["en"], font=font_en, fill=(255, 255, 255, 255))
+    else:
+        draw.text((tx, en_y), lib_names["en"], font=font_en, fill=(255, 255, 255, 255))
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    bg.convert("RGB").save(output_path, quality=90)
+    canvas.convert("RGB").save(output_path, quality=92)
     print(f"✅ 封面合成成功: {output_path}")
     return True
 
@@ -237,9 +196,9 @@ def create_library_cover(bg_path, poster_paths, lib_key, output_path):
 def upload_cover_to_emby(item_id, image_path):
     url = f"{EMBY_CONFIG['url']}/emby/Items/{item_id}/Images/Primary"
     params = {"api_key": EMBY_CONFIG["api_key"]}
-    content_type = "image/jpeg" if image_path.lower().endswith(".jpg") else "image/png"
+    content_type = "image/jpeg"
     
-    print(f"☁️ 正在同步封面至 Emby (ItemID: {item_id})...")
+    print(f"☁️ 正在同步封面至 Emby...")
     try:
         with open(image_path, "rb") as img_file:
             b64_data = base64.b64encode(img_file.read())
@@ -248,35 +207,34 @@ def upload_cover_to_emby(item_id, image_path):
         response = requests.post(url, params=params, headers=headers, data=b64_data, timeout=30)
         
         if response.status_code in [200, 204]:
-            print("✅ 成功同步封面至 Emby！")
+            print("✅ 成功同步封面！")
         else:
-            print(f"❌ 图片上传失败，状态码: {response.status_code}, 详情: {response.text}")
+            print(f"❌ 上传失败，状态码: {response.status_code}")
     except Exception as e:
-        print(f"❌ 同步过程发生异常: {e}")
+        print(f"❌ 同步异常: {e}")
 
 # ================= 4. 任务执行主干 =================
 
 def run_job():
-    mode_text = "完整模式 (生成并自动上传 Emby)" if UPLOAD_TO_EMBY else "预览模式 (仅生成本地图片不上传)"
-    print(f"\n========== Emby Cover Generator [{mode_text}] ==========")
+    print(f"\n========== Emby Cover Generator (阶梯矩阵版) ==========")
     print(f"当前任务开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     if EMBY_CONFIG["api_key"] == "YOUR_API_KEY_HERE":
-        print("❌ 请先在 docker-compose.yml (或 .env) 中配置真实的 EMBY_URL 和 EMBY_API_KEY！")
+        print("❌ 请先配置真实的 EMBY_URL 和 EMBY_API_KEY！")
         return
 
     target_keys = list(LIBRARY_MAP.keys())
     for lib_key in target_keys:
-        print(f"\n>>> 开始处理媒体库: [{lib_key}] <<<")
+        print(f"\n>>> 处理媒体库: [{lib_key}] <<<")
         target_zh_name = LIBRARY_MAP[lib_key]["zh"]
         output_img = f"./output/cover_{lib_key}.jpg"
         
-        success, bg_img, poster_imgs = fetch_latest_emby_images(target_zh_name)
+        success, poster_imgs = fetch_latest_posters(target_zh_name)
         
         if success:
-            if create_library_cover(bg_img, poster_imgs, lib_key, output_img):
+            if create_staggered_cover(poster_imgs, lib_key, output_img):
                 if not UPLOAD_TO_EMBY:
-                    print(f"⚠️ 【预览模式】 {output_img} 已保存在 output 文件夹中。")
+                    print(f"⚠️ 【预览模式】 {output_img} 已保存。")
                 else:
                     lib_id = get_emby_item_id(target_zh_name)
                     if lib_id:
