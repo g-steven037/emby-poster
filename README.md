@@ -32,7 +32,7 @@
 ### 1. 初始化项目目录
 在您的宿主机（如 Linux VPS、群晖 NAS）中创建一个空目录作为项目根目录，并进入该目录：
 ```bash
-mkdir emby-cover-generator && cd emby-cover-generator
+mkdir emby-poster && cd emby-poster
 mkdir fonts input output
 
 ```
@@ -40,7 +40,7 @@ mkdir fonts input output
 最终的项目目录结构如下：
 
 ```text
-emby-cover-generator/
+emby-poster/
 ├── .env                 # 环境变量文件 (存放 API Key)
 ├── docker-compose.yml   # 容器编排文件
 ├── config.py            # 核心排版与媒体库配置文件
