@@ -7,10 +7,6 @@ from PIL import Image, ImageFilter, ImageDraw, ImageFont
 
 from config import UPLOAD_TO_EMBY, COVER_STYLE, LIBRARY_MAP, CONFIG, EMBY_CONFIG
 
-# ==========================================
-# 1. Emby API 工具与深度去重拉取
-# ==========================================
-
 def get_emby_item_id(library_name):
     url = f"{EMBY_CONFIG['url']}/emby/Items"
     params = {"api_key": EMBY_CONFIG["api_key"], "Recursive": "true", "IncludeItemTypes": "CollectionFolder,BoxSet"}
@@ -34,31 +30,38 @@ def download_image(url, save_path):
     return False
 
 def get_unique_items(lib_id, limit=300):
-    """深度去重核心逻辑：抓取大基数数据，通过影视名称过滤重复项"""
+    """深度去重 & 最新集溯源逻辑"""
     url = f"{EMBY_CONFIG['url']}/emby/Items"
     params = {
-        "api_key": EMBY_CONFIG["api_key"], "ParentId": lib_id, "Recursive": "true",
-        "IncludeItemTypes": "Movie,Series", "SortBy": "DateCreated", "SortOrder": "Descending",
-        "Limit": limit, "Fields": "BackdropImageTags"       
+        "api_key": EMBY_CONFIG["api_key"], 
+        "ParentId": lib_id, 
+        "Recursive": "true",
+        "IncludeItemTypes": "Movie,Episode", 
+        "SortBy": "DateCreated", 
+        "SortOrder": "Descending",
+        "Limit": limit       
     }
-    print(f"📥 正在获取最新入库记录，并进行深度去重筛选...")
+    print(f"📥 正在获取最新入库记录（支持解析最新集），并进行深度去重筛选...")
     raw_items = requests.get(url, params=params, timeout=10).json().get("Items", [])
     
     unique_items = []
     seen_names = set()
+    
     for item in raw_items:
-        name = item.get("Name", "")
-        # 如果名称存在且未见过，则加入有效列表
-        if name and name not in seen_names:
-            seen_names.add(name)
-            unique_items.append(item)
-            
-    print(f"✨ 深度过滤完成！从 {len(raw_items)} 条记录中筛选出 {len(unique_items)} 个完全不重复的影视项目。")
-    return unique_items
+        item_type = item.get("Type")
+        if item_type == "Episode":
+            name = item.get("SeriesName", "")
+            target_id = item.get("SeriesId")
+        else:
+            name = item.get("Name", "")
+            target_id = item.get("Id")
 
-# ==========================================
-# 2. 图像渲染工具箱
-# ==========================================
+        if name and target_id and name not in seen_names:
+            seen_names.add(name)
+            unique_items.append({"Id": target_id, "Name": name})
+            
+    print(f"✨ 深度过滤完成！从 {len(raw_items)} 条原始记录中筛选出 {len(unique_items)} 个完全不重复的影视项目。")
+    return unique_items
 
 def add_rounded_corners(im, rad):
     circle = Image.new('L', (rad * 2, rad * 2), 0)
@@ -81,15 +84,10 @@ def get_dominant_color(image_path):
         return CONFIG.get("s2_bg_default_color", (30,30,35))
 
 def get_font(path_key, size_key, default_size):
-    """安全获取字体，防止路径错误"""
     try:
         return ImageFont.truetype(CONFIG.get(path_key, ""), CONFIG.get(size_key, default_size))
     except:
         return ImageFont.load_default()
-
-# ==========================================
-# 3. Style 1 (经典平铺瀑布流)
-# ==========================================
 
 def render_s1_cover(items, lib_key, output_path):
     target_count = CONFIG.get("s1_poster_count", 6)
@@ -101,16 +99,17 @@ def render_s1_cover(items, lib_key, output_path):
     bg_path = "./input/s1_bg.jpg"
     poster_paths = []
     
-    # 找寻合适的背景图
     used_bg_id = None
     for item in items:
-        url = f"{EMBY_CONFIG['url']}/emby/Items/{item['Id']}/Images/Backdrop/0?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920" if item.get("BackdropImageTags") else f"{EMBY_CONFIG['url']}/emby/Items/{item['Id']}/Images/Primary?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920"
-        if download_image(url, bg_path):
+        url_backdrop = f"{EMBY_CONFIG['url']}/emby/Items/{item['Id']}/Images/Backdrop/0?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920"
+        url_primary = f"{EMBY_CONFIG['url']}/emby/Items/{item['Id']}/Images/Primary?api_key={EMBY_CONFIG['api_key']}&maxWidth=1920"
+        
+        if download_image(url_backdrop, bg_path) or download_image(url_primary, bg_path):
             used_bg_id = item['Id']
             break 
+            
     if not used_bg_id: return False
 
-    # 抓取海报
     for item in [it for it in items if it['Id'] != used_bg_id]:
         if len(poster_paths) >= target_count: break 
         p_path = f"./input/s1_p_{len(poster_paths)+1}.jpg"
@@ -122,7 +121,6 @@ def render_s1_cover(items, lib_key, output_path):
     print("🎨 正在渲染 [Style 1] 经典平铺封面...")
     bg = Image.open(bg_path).convert("RGBA").resize(CONFIG.get("output_size", (1920, 1080)), Image.Resampling.LANCZOS)
     
-    # 极度安全的参数读取 (防御 KeyError)
     blur_rad = max(0, min(100, CONFIG.get("s1_blur_percent", CONFIG.get("blur_percent", 40)))) / 100.0 * 30
     if blur_rad > 0: bg = bg.filter(ImageFilter.GaussianBlur(blur_rad))
 
@@ -146,7 +144,6 @@ def render_s1_cover(items, lib_key, output_path):
 
     draw = ImageDraw.Draw(bg)
     lib_n = LIBRARY_MAP.get(lib_key, {"zh": "未知", "en": "UNKNOWN"})
-    
     f_zh = get_font("font_zh_path", "s1_font_size_zh", 150)
     f_en = get_font("font_en_path", "s1_font_size_en", 70)
     
@@ -165,10 +162,6 @@ def render_s1_cover(items, lib_key, output_path):
     bg.convert("RGB").save(output_path, quality=92)
     return True
 
-# ==========================================
-# 4. Style 2 (倾斜阶梯海报墙)
-# ==========================================
-
 def render_s2_cover(items, lib_key, output_path):
     target_count = CONFIG.get("s2_poster_count", 9)
     if len(items) < target_count:
@@ -177,6 +170,7 @@ def render_s2_cover(items, lib_key, output_path):
 
     os.makedirs("./input", exist_ok=True)
     poster_paths = []
+    
     for item in items:
         if len(poster_paths) >= target_count: break 
         p_path = f"./input/s2_p_{len(poster_paths)+1}.jpg"
@@ -185,18 +179,21 @@ def render_s2_cover(items, lib_key, output_path):
 
     if len(poster_paths) < target_count: return False
 
-    print("🎨 正在渲染 [Style 2] 倾斜阶梯封面...")
+    print("🎨 正在渲染 [Style 2] 动态大画幅阶梯封面...")
     bg_c = CONFIG.get("s2_bg_default_color", (30, 30, 35))
     if CONFIG.get("s2_bg_auto_color", True):
         bg_c = get_dominant_color(poster_paths[0])
 
     cv = Image.new("RGBA", CONFIG.get("output_size", (1920, 1080)), bg_c + (255,))
-    wl = Image.new("RGBA", (3000, 3000), (0,0,0,0))
-    p_w, p_h = CONFIG.get("s2_poster_size", (320, 460))
     
+    p_w, p_h = CONFIG.get("s2_poster_size", (380, 560))
     s_x = CONFIG.get("s2_poster_spacing_x", 40)
     s_y = CONFIG.get("s2_poster_spacing_y", 40)
-    stagger = CONFIG.get("s2_poster_stagger", 140)
+    stagger = CONFIG.get("s2_poster_stagger", 180)
+    
+    wall_w = 3 * p_w + 2 * s_x
+    wall_h = 3 * p_h + 2 * s_y + 2 * stagger
+    wl = Image.new("RGBA", (wall_w, wall_h), (0,0,0,0))
 
     for i, path in enumerate(poster_paths):
         col, row = i // 3, i % 3
@@ -207,8 +204,13 @@ def render_s2_cover(items, lib_key, output_path):
             wl.paste(img, (x, y), img)
         except: pass
 
-    rt = wl.rotate(CONFIG.get("s2_poster_rotation", -16), expand=True, resample=Image.Resampling.BICUBIC)
-    cv.paste(rt, CONFIG.get("s2_poster_grid_pos", (750, -200)), rt)
+    rt = wl.rotate(CONFIG.get("s2_poster_rotation", -15), expand=True, resample=Image.Resampling.BICUBIC)
+    
+    target_center_x, target_center_y = CONFIG.get("s2_poster_center", (1450, 540))
+    paste_x = int(target_center_x - rt.width / 2)
+    paste_y = int(target_center_y - rt.height / 2)
+    
+    cv.paste(rt, (paste_x, paste_y), rt)
 
     d = ImageDraw.Draw(cv)
     lib_n = LIBRARY_MAP.get(lib_key, {"zh": "未知", "en": "UNKNOWN"})
@@ -216,7 +218,7 @@ def render_s2_cover(items, lib_key, output_path):
     f_zh = get_font("font_zh_path", "s2_font_size_zh", 180)
     f_en = get_font("font_en_path", "s2_font_size_en", 70)
     
-    tx, ty = CONFIG.get("s2_text_pos", (120, 420))
+    tx, ty = CONFIG.get("s2_text_pos", (100, 420))
     d.text((tx, ty), lib_n["zh"], font=f_zh, fill=(255,255,255,255))
     
     en_y = ty + CONFIG.get("s2_font_size_zh", 180) + 25
@@ -232,10 +234,6 @@ def render_s2_cover(items, lib_key, output_path):
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cv.convert("RGB").save(output_path, quality=92)
     return True
-
-# ==========================================
-# 5. 上传与主干逻辑
-# ==========================================
 
 def upload_cover_to_emby(item_id, image_path):
     url = f"{EMBY_CONFIG['url']}/emby/Items/{item_id}/Images/Primary"
